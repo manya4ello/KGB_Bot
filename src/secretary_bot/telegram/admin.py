@@ -257,7 +257,7 @@ def register(
             return
         await message.reply(f"Доступ к проекту `{parts[0]}` выдан пользователю {parts[1]}.")
 
-    @router.message(Command("note"))
+    @router.message(Command("note"), ~F.document)
     async def cmd_note(message: Message, command: CommandObject) -> None:
         if not (_private(message) and _is_admin(message)):
             return
@@ -302,7 +302,7 @@ def register(
             f"в проект `{slug}`. Запустите /runextract."
         )
 
-    @router.message(Command("import"))
+    @router.message(Command("import"), ~F.document)
     async def cmd_import(message: Message, command: CommandObject) -> None:
         if not (_private(message) and _is_admin(message)):
             return
