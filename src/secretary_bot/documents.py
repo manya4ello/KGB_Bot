@@ -21,13 +21,39 @@ def decode_text_file(raw: bytes) -> str:
     raise ValueError("не удалось декодировать как текст (UTF-8/CP1251)")
 
 
-def _pdf_text(data: bytes) -> str:
+def _pypdf_text(data: bytes) -> str:
     try:
         from pypdf import PdfReader
-    except ImportError as exc:  # pragma: no cover
-        raise ValueError("поддержка PDF не установлена на сервере") from exc
-    reader = PdfReader(io.BytesIO(data))
-    return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except ImportError:  # pragma: no cover
+        return ""
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except Exception:
+        return ""
+
+
+def _pdfplumber_text(data: bytes) -> str:
+    try:
+        import pdfplumber
+    except ImportError:  # pragma: no cover
+        return ""
+    try:
+        parts = []
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            for page in pdf.pages:
+                parts.append(page.extract_text() or "")
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
+def _pdf_text(data: bytes) -> str:
+    """Extract text; pypdf first (fast), pdfplumber as fallback. Empty -> likely a scan."""
+    text = _pypdf_text(data)
+    if text.strip():
+        return text
+    return _pdfplumber_text(data)
 
 
 def _docx_text(data: bytes) -> str:

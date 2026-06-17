@@ -381,7 +381,13 @@ def register(
                 await message.reply(f"Не удалось прочитать файл: {exc}")
                 return
             if not text:
-                await message.reply("Файл пустой.")
+                if (message.document.file_name or "").lower().endswith(".pdf"):
+                    await message.reply(
+                        "Не удалось извлечь текст из PDF — похоже, это скан без "
+                        "текстового слоя (нужен OCR)."
+                    )
+                else:
+                    await message.reply("Файл пустой / текст не извлёкся.")
                 return
             try:
                 add_note(conn, slug, text, author_id=message.from_user.id, ts=_now_iso())
