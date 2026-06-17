@@ -29,7 +29,7 @@ ADMIN: list[tuple[str, str, str]] = PUBLIC + [
     ("whitelist_remove", "Убрать из whitelist", "/whitelist_remove <user_id>"),
     ("whitelist", "Показать whitelist", "/whitelist"),
     ("grant", "Выдать доступ к проекту", "/grant <slug> <user_id>"),
-    ("note", "Добавить заметку в проект", "/note <slug> <текст>"),
+    ("note", "Заметка/файл в проект", "/note <slug> <текст> (или приложите .txt-файл с подписью)"),
     ("import", "Импорт истории чата", "/import <slug> (приложить .json-экспорт)"),
     ("runextract", "Запустить извлечение знаний", "/runextract"),
     ("status", "Статус бота", "/status"),
@@ -76,7 +76,8 @@ _SETUP = (
     "3) Дать команде пообщаться.\n"
     "4) Извлечь знания: /runextract\n"
     "5) Опционально: импорт истории — /import <slug> и приложить .json-экспорт чата "
-    "(Telegram Desktop → Экспорт истории → JSON); ручная заметка — /note <slug> <текст>.\n"
+    "(Telegram Desktop → Экспорт истории → JSON); ручная заметка — /note <slug> <текст> "
+    "(или приложите текстовый .txt/.md-файл с подписью /note <slug>).\n"
     "Доступ выдаётся автоматически участникам чатов проекта; вручную — /grant <slug> <user_id>."
 )
 

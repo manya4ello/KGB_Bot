@@ -71,6 +71,16 @@ def test_add_note_unknown_project_raises(conn):
         admin.add_note(conn, "nope", "x")
 
 
+def test_decode_text_file_utf8_and_cp1251():
+    assert admin.decode_text_file("привет".encode("utf-8")) == "привет"
+    assert admin.decode_text_file("привет".encode("cp1251")) == "привет"
+
+
+def test_decode_text_file_rejects_binary():
+    with pytest.raises(ValueError):
+        admin.decode_text_file(b"%PDF-1.4\x00\x00\x01binary")
+
+
 def test_status_counts(conn):
     admin.create_project(conn, "proj", "Proj")
     admin.bind_chat(conn, 100, "proj")

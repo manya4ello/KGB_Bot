@@ -29,6 +29,21 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+MAX_DOC_BYTES = 2_000_000  # 2 MB cap on uploaded files
+
+
+def decode_text_file(raw: bytes) -> str:
+    """Decode an uploaded file as text (UTF-8 or CP1251). Reject binaries."""
+    if b"\x00" in raw[:4096]:
+        raise ValueError("похоже на бинарный файл, не текст")
+    for enc in ("utf-8-sig", "cp1251"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("не удалось декодировать как текст (UTF-8/CP1251)")
+
+
 # --------------------------------------------------------------------------- #
 # Pure logic
 # --------------------------------------------------------------------------- #
@@ -302,20 +317,45 @@ def register(
 
     @router.message(F.document)
     async def on_document(message: Message, bot) -> None:
-        # JSON export sent in private with caption "/import <slug>".
+        # File sent in private with a command caption:
+        #   /import <slug>  — Telegram JSON export
+        #   /note   <slug>  — text file (.txt/.md/...) added to the project
         if not (_private(message) and _is_admin(message)):
             return
-        caption = (message.caption or "").strip()
-        if not caption.startswith("/import"):
+        parts = (message.caption or "").strip().split()
+        if not parts or parts[0].lower() not in ("/import", "/note"):
             return
-        parts = caption.split()
         if len(parts) < 2:
-            await message.reply("Подпись к файлу: /import <slug>")
+            await message.reply(f"Подпись к файлу: {parts[0]} <slug>")
             return
-        dest = f"/tmp/kgb_import_{message.document.file_unique_id}.json"
+        cmd, slug = parts[0].lower(), parts[1]
+        if message.document.file_size and message.document.file_size > MAX_DOC_BYTES:
+            await message.reply("Файл слишком большой (макс. 2 МБ).")
+            return
+        dest = f"/tmp/kgb_{message.document.file_unique_id}"
         try:
             await bot.download(message.document, destination=dest)
-            await _do_import(message, parts[1], dest)
+            if cmd == "/import":
+                await _do_import(message, slug, dest)
+                return
+            with open(dest, "rb") as fh:
+                raw = fh.read()
+            try:
+                text = decode_text_file(raw).strip()
+            except ValueError as exc:
+                await message.reply(f"Не удалось прочитать файл: {exc}")
+                return
+            if not text:
+                await message.reply("Файл пустой.")
+                return
+            try:
+                add_note(conn, slug, text, author_id=message.from_user.id, ts=_now_iso())
+            except ValueError as exc:
+                await message.reply(str(exc))
+                return
+            await message.reply(
+                f"Файл загружен в проект `{slug}` ({len(text)} символов). Запустите /runextract."
+            )
         finally:
             try:
                 os.remove(dest)
