@@ -19,6 +19,7 @@ from aiogram.types import Message
 
 from ..config import Settings
 from ..db import repositories as repo
+from ..documents import decode_text_file, extract_text  # noqa: F401 (re-export)
 from ..logging import get_logger
 from ..pipeline.import_export import import_export_file
 
@@ -29,19 +30,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-MAX_DOC_BYTES = 2_000_000  # 2 MB cap on uploaded files
-
-
-def decode_text_file(raw: bytes) -> str:
-    """Decode an uploaded file as text (UTF-8 or CP1251). Reject binaries."""
-    if b"\x00" in raw[:4096]:
-        raise ValueError("похоже на бинарный файл, не текст")
-    for enc in ("utf-8-sig", "cp1251"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    raise ValueError("не удалось декодировать как текст (UTF-8/CP1251)")
+MAX_DOC_BYTES = 5_000_000  # 5 MB cap on uploaded files
 
 
 # --------------------------------------------------------------------------- #
@@ -341,7 +330,7 @@ def register(
             with open(dest, "rb") as fh:
                 raw = fh.read()
             try:
-                text = decode_text_file(raw).strip()
+                text = extract_text(message.document.file_name or "", raw).strip()
             except ValueError as exc:
                 await message.reply(f"Не удалось прочитать файл: {exc}")
                 return
