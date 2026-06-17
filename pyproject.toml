@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "secretary-bot"
+version = "0.1.0"
+description = "Telegram bot that turns chat discussions into a structured, searchable knowledge base"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram>=3.13",
+    "openai>=1.40",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+]
+
+[project.optional-dependencies]
+# Vector index (Chroma) lands in U10 / Phase 2; not needed for the walking skeleton.
+vector = ["chromadb>=0.5"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+secretary-bot = "secretary_bot.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/secretary_bot"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]

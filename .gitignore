@@ -1,0 +1,20 @@
+# Секреты — НИКОГДА не коммитить
+.env
+*.env
+!.env.example
+
+# Локальные данные
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Agent / tooling
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
