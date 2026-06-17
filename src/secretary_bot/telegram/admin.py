@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
 from aiogram import F, Router
@@ -22,6 +22,7 @@ from ..db import repositories as repo
 from ..documents import decode_text_file, extract_text  # noqa: F401 (re-export)
 from ..logging import get_logger
 from ..pipeline.import_export import import_export_file
+from ..pipeline.segment import DEFAULT_TIME_GAP_SECONDS
 
 log = get_logger(__name__)
 
@@ -30,7 +31,45 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-MAX_DOC_BYTES = 5_000_000  # 5 MB cap on uploaded files
+MAX_DOC_BYTES = 20_000_000  # 20 MB — Telegram Bot API download ceiling
+NOTE_CHUNK_CHARS = 4000  # split long notes/files into chunks of ~this size
+_NOTE_CHUNK_GAP = DEFAULT_TIME_GAP_SECONDS + 60  # stagger ts so each chunk is its own window
+
+
+def _chunk_text(text: str, max_chars: int = NOTE_CHUNK_CHARS) -> list[str]:
+    """Split text into chunks <= max_chars, preferring paragraph boundaries."""
+    text = text.strip()
+    if len(text) <= max_chars:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    for para in text.split("\n\n"):
+        if current and len(current) + 2 + len(para) > max_chars:
+            chunks.append(current)
+            current = para
+        else:
+            current = f"{current}\n\n{para}" if current else para
+        while len(current) > max_chars:  # a single oversized paragraph
+            chunks.append(current[:max_chars])
+            current = current[max_chars:]
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _staggered_ts(ts: str | None, i: int) -> str | None:
+    """Timestamp for chunk i, spaced past the window gap so chunks don't merge."""
+    if i == 0:
+        return ts
+    base: datetime | None = None
+    if ts:
+        try:
+            base = datetime.fromisoformat(ts)
+        except ValueError:
+            base = None
+    if base is None:
+        base = datetime.now(timezone.utc)
+    return (base + timedelta(seconds=i * _NOTE_CHUNK_GAP)).isoformat()
 
 
 # --------------------------------------------------------------------------- #
@@ -88,16 +127,19 @@ def add_note(
     pid = int(project["id"])
     chat_id = repo.upsert_chat(conn, NOTE_CHAT_BASE + pid, f"[notes] {project['title']}")
     repo.bind_chat_to_project(conn, pid, chat_id)
-    msg_id = repo.next_synthetic_message_id(conn, chat_id)
-    return repo.add_message(
-        conn,
-        chat_id=chat_id,
-        tg_message_id=msg_id,
-        tg_user_id=author_id,
-        text=text,
-        reply_to=None,
-        ts=ts,
-    )
+    base_id = repo.next_synthetic_message_id(conn, chat_id)
+    last_id = None
+    for i, chunk in enumerate(_chunk_text(text)):
+        last_id = repo.add_message(
+            conn,
+            chat_id=chat_id,
+            tg_message_id=base_id + i,
+            tg_user_id=author_id,
+            text=chunk,
+            reply_to=None,
+            ts=_staggered_ts(ts, i),
+        )
+    return last_id
 
 
 def grant(
@@ -319,11 +361,15 @@ def register(
             return
         cmd, slug = parts[0].lower(), parts[1]
         if message.document.file_size and message.document.file_size > MAX_DOC_BYTES:
-            await message.reply("Файл слишком большой (макс. 2 МБ).")
+            await message.reply(f"Файл слишком большой (макс. {MAX_DOC_BYTES // 1_000_000} МБ).")
             return
         dest = f"/tmp/kgb_{message.document.file_unique_id}"
         try:
-            await bot.download(message.document, destination=dest)
+            try:
+                await bot.download(message.document, destination=dest)
+            except Exception:
+                await message.reply("Не удалось скачать файл (для Bot API лимит ~20 МБ).")
+                return
             if cmd == "/import":
                 await _do_import(message, slug, dest)
                 return

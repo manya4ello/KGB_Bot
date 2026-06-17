@@ -71,6 +71,27 @@ def test_add_note_unknown_project_raises(conn):
         admin.add_note(conn, "nope", "x")
 
 
+def test_chunk_text():
+    assert admin._chunk_text("short") == ["short"]
+    chunks = admin._chunk_text("a" * 10000, max_chars=4000)
+    assert len(chunks) >= 3
+    assert all(len(c) <= 4000 for c in chunks)
+    assert "".join(chunks) == "a" * 10000
+
+
+def test_add_note_chunks_long_file_into_windows(conn):
+    from secretary_bot.pipeline.segment import segment_messages
+
+    admin.create_project(conn, "team", "Team")
+    long = "\n\n".join(f"Параграф {i}: " + "x" * 600 for i in range(30))  # > 4000 chars
+    admin.add_note(conn, "team", long, author_id=1, ts="2026-06-17T10:00:00")
+    chat = repo.chats_in_project(conn, repo.get_project_by_slug(conn, "team")["id"])[0]
+    msgs = repo.unprocessed_messages(conn, chat)
+    assert len(msgs) > 1  # split into chunk-messages
+    # staggered timestamps -> each chunk is its own extraction window
+    assert len(segment_messages([dict(m) for m in msgs])) > 1
+
+
 def test_decode_text_file_utf8_and_cp1251():
     assert admin.decode_text_file("привет".encode("utf-8")) == "привет"
     assert admin.decode_text_file("привет".encode("cp1251")) == "привет"
