@@ -23,6 +23,7 @@ from ..documents import decode_text_file, extract_text  # noqa: F401 (re-export)
 from ..logging import get_logger
 from ..pipeline.import_export import import_export_file
 from ..pipeline.segment import DEFAULT_TIME_GAP_SECONDS
+from . import ingest
 
 log = get_logger(__name__)
 
@@ -348,54 +349,94 @@ def register(
 
     @router.message(F.document)
     async def on_document(message: Message, bot) -> None:
-        # File sent in private with a command caption:
-        #   /import <slug>  — Telegram JSON export
-        #   /note   <slug>  — text file (.txt/.md/...) added to the project
-        if not (_private(message) and _is_admin(message)):
+        # Private chat: admin file commands (/import, /note with a file).
+        if _private(message):
+            if not _is_admin(message):
+                return
+            parts = (message.caption or "").strip().split()
+            if not parts or parts[0].lower() not in ("/import", "/note"):
+                return
+            if len(parts) < 2:
+                await message.reply(f"Подпись к файлу: {parts[0]} <slug>")
+                return
+            cmd, slug = parts[0].lower(), parts[1]
+            if message.document.file_size and message.document.file_size > MAX_DOC_BYTES:
+                await message.reply(f"Файл слишком большой (макс. {MAX_DOC_BYTES // 1_000_000} МБ).")
+                return
+            dest = f"/tmp/kgb_{message.document.file_unique_id}"
+            try:
+                try:
+                    await bot.download(message.document, destination=dest)
+                except Exception:
+                    await message.reply("Не удалось скачать файл (для Bot API лимит ~20 МБ).")
+                    return
+                if cmd == "/import":
+                    await _do_import(message, slug, dest)
+                    return
+                with open(dest, "rb") as fh:
+                    raw = fh.read()
+                try:
+                    text = extract_text(message.document.file_name or "", raw).strip()
+                except ValueError as exc:
+                    await message.reply(f"Не удалось прочитать файл: {exc}")
+                    return
+                if not text:
+                    if (message.document.file_name or "").lower().endswith(".pdf"):
+                        await message.reply(
+                            "Не удалось извлечь текст из PDF — похоже, это скан без "
+                            "текстового слоя (нужен OCR)."
+                        )
+                    else:
+                        await message.reply("Файл пустой / текст не извлёкся.")
+                    return
+                try:
+                    add_note(conn, slug, text, author_id=message.from_user.id, ts=_now_iso())
+                except ValueError as exc:
+                    await message.reply(str(exc))
+                    return
+                await message.reply(
+                    f"Файл загружен в проект `{slug}` ({len(text)} символов). Запустите /runextract."
+                )
+            finally:
+                try:
+                    os.remove(dest)
+                except OSError:
+                    pass
             return
-        parts = (message.caption or "").strip().split()
-        if not parts or parts[0].lower() not in ("/import", "/note"):
+
+        # Group/supergroup: silently ingest a posted file's text as a message,
+        # exactly like a normal chat message (only for sanctioned chats, KTD10).
+        if message.chat.type not in ("group", "supergroup"):
             return
-        if len(parts) < 2:
-            await message.reply(f"Подпись к файлу: {parts[0]} <slug>")
-            return
-        cmd, slug = parts[0].lower(), parts[1]
         if message.document.file_size and message.document.file_size > MAX_DOC_BYTES:
-            await message.reply(f"Файл слишком большой (макс. {MAX_DOC_BYTES // 1_000_000} МБ).")
             return
+        chat = repo.get_chat_by_tg(conn, message.chat.id)
+        if chat is None or not repo.is_chat_sanctioned(conn, int(chat["id"])):
+            return  # unsanctioned chat: do not even download
         dest = f"/tmp/kgb_{message.document.file_unique_id}"
         try:
             try:
                 await bot.download(message.document, destination=dest)
             except Exception:
-                await message.reply("Не удалось скачать файл (для Bot API лимит ~20 МБ).")
-                return
-            if cmd == "/import":
-                await _do_import(message, slug, dest)
                 return
             with open(dest, "rb") as fh:
                 raw = fh.read()
             try:
                 text = extract_text(message.document.file_name or "", raw).strip()
-            except ValueError as exc:
-                await message.reply(f"Не удалось прочитать файл: {exc}")
-                return
+            except ValueError:
+                return  # unsupported/binary/scan in a group: skip silently
             if not text:
-                if (message.document.file_name or "").lower().endswith(".pdf"):
-                    await message.reply(
-                        "Не удалось извлечь текст из PDF — похоже, это скан без "
-                        "текстового слоя (нужен OCR)."
-                    )
-                else:
-                    await message.reply("Файл пустой / текст не извлёкся.")
                 return
-            try:
-                add_note(conn, slug, text, author_id=message.from_user.id, ts=_now_iso())
-            except ValueError as exc:
-                await message.reply(str(exc))
-                return
-            await message.reply(
-                f"Файл загружен в проект `{slug}` ({len(text)} символов). Запустите /runextract."
+            ingest.handle_incoming(
+                conn,
+                tg_chat_id=message.chat.id,
+                chat_title=message.chat.title,
+                tg_message_id=message.message_id,
+                tg_user_id=message.from_user.id if message.from_user else None,
+                username=message.from_user.username if message.from_user else None,
+                text=f"[файл {message.document.file_name or 'document'}]\n{text}",
+                reply_to=message.reply_to_message.message_id if message.reply_to_message else None,
+                ts=message.date.isoformat() if message.date else _now_iso(),
             )
         finally:
             try:
