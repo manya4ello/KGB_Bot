@@ -190,6 +190,9 @@ def register(
     def _is_admin(message: Message) -> bool:
         return bool(message.from_user) and repo.is_admin(conn, message.from_user.id)
 
+    def _is_whitelisted(message: Message) -> bool:
+        return bool(message.from_user) and repo.is_whitelisted(conn, message.from_user.id)
+
     def _private(message: Message) -> bool:
         return message.chat.type == "private"
 
@@ -291,7 +294,7 @@ def register(
 
     @router.message(Command("note"), ~F.document)
     async def cmd_note(message: Message, command: CommandObject) -> None:
-        if not (_private(message) and _is_admin(message)):
+        if not (_private(message) and _is_whitelisted(message)):
             return
         args = (command.args or "").split(maxsplit=1)
         if len(args) < 2:
@@ -336,7 +339,7 @@ def register(
 
     @router.message(Command("import"), ~F.document)
     async def cmd_import(message: Message, command: CommandObject) -> None:
-        if not (_private(message) and _is_admin(message)):
+        if not (_private(message) and _is_whitelisted(message)):
             return
         args = (command.args or "").split()
         if len(args) < 2:
@@ -349,9 +352,9 @@ def register(
 
     @router.message(F.document)
     async def on_document(message: Message, bot) -> None:
-        # Private chat: admin file commands (/import, /note with a file).
+        # Private chat: whitelisted users may feed files (/import, /note).
         if _private(message):
-            if not _is_admin(message):
+            if not _is_whitelisted(message):
                 return
             parts = (message.caption or "").strip().split()
             if not parts or parts[0].lower() not in ("/import", "/note"):

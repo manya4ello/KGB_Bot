@@ -16,10 +16,13 @@ from ..logging import get_logger
 log = get_logger(__name__)
 
 # (command, short description for the menu, usage shown in /help)
+# Available to any whitelisted user (feeding data + querying).
 PUBLIC: list[tuple[str, str, str]] = [
     ("help", "Справка и как пользоваться", "/help"),
     ("optout", "Не учитывать мои сообщения", "/optout"),
     ("optin", "Снова учитывать мои сообщения", "/optin"),
+    ("note", "Заметка/файл в проект", "/note <slug> <текст> (или приложите файл с подписью)"),
+    ("import", "Импорт истории чата", "/import <slug> (приложить .json-экспорт)"),
 ]
 
 ADMIN: list[tuple[str, str, str]] = PUBLIC + [
@@ -29,8 +32,6 @@ ADMIN: list[tuple[str, str, str]] = PUBLIC + [
     ("whitelist_remove", "Убрать из whitelist", "/whitelist_remove <user_id>"),
     ("whitelist", "Показать whitelist", "/whitelist"),
     ("grant", "Выдать доступ к проекту", "/grant <slug> <user_id>"),
-    ("note", "Заметка/файл в проект", "/note <slug> <текст> (или приложите .txt-файл с подписью)"),
-    ("import", "Импорт истории чата", "/import <slug> (приложить .json-экспорт)"),
     ("runextract", "Запустить извлечение знаний", "/runextract"),
     ("status", "Статус бота", "/status"),
 ]
@@ -73,12 +74,17 @@ _SETUP = (
     "   пример: /newproject marketing Маркетинг Q3\n"
     "2) Привязать чат к проекту — выполнить прямо в нужном чате: /bindchat <slug>\n"
     "   (после этого я начинаю собирать сообщения; до привязки — игнорирую чат)\n"
-    "3) Дать команде пообщаться.\n"
-    "4) Извлечь знания: /runextract\n"
-    "5) Опционально: импорт истории — /import <slug> и приложить .json-экспорт чата "
-    "(Telegram Desktop → Экспорт истории → JSON); ручная заметка — /note <slug> <текст> "
-    "(или приложите текстовый .txt/.md-файл с подписью /note <slug>).\n"
+    "3) Дать команде пообщаться, затем извлечь знания: /runextract\n"
     "Доступ выдаётся автоматически участникам чатов проекта; вручную — /grant <slug> <user_id>."
+)
+
+_FEED = (
+    "📥 Загрузить данные в проект (доступно всем из белого списка):\n"
+    "• История чата: /import <slug> и приложите .json-экспорт "
+    "(Telegram Desktop → Экспорт истории → формат JSON).\n"
+    "• Заметка/документ: /note <slug> <текст> или приложите файл "
+    "(.txt/.md/.pdf/.docx) с подписью /note <slug>.\n"
+    "Проект (slug) должен уже существовать — создаёт его админ."
 )
 
 
@@ -88,9 +94,9 @@ def _commands_block(rows: list[tuple[str, str, str]]) -> str:
 
 def help_text(admin: bool) -> str:
     if admin:
-        sections = [_INTRO, _CONCEPTS, _SETUP, _HOW_TO_ASK, _OPTOUT, _commands_block(ADMIN)]
+        sections = [_INTRO, _CONCEPTS, _SETUP, _FEED, _HOW_TO_ASK, _OPTOUT, _commands_block(ADMIN)]
     else:
-        sections = [_INTRO, _HOW_TO_ASK, _OPTOUT, _commands_block(PUBLIC)]
+        sections = [_INTRO, _FEED, _HOW_TO_ASK, _OPTOUT, _commands_block(PUBLIC)]
     return "\n\n".join(sections)
 
 
