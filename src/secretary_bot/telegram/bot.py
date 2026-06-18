@@ -115,9 +115,12 @@ def build_dispatcher(
         user = message.from_user
         if not user or not access.is_allowed(conn, user.id) or llm is None:
             return  # non-whitelisted users are ignored entirely (KTD6)
-        projects = await access.accessible_projects(
-            conn, _make_member_check(bot), user.id, ttl_seconds=settings.membership_ttl_seconds
-        )
+        if access.is_superadmin(settings, user.id):
+            projects = access.all_project_ids(conn)  # super-admin sees everything
+        else:
+            projects = await access.accessible_projects(
+                conn, _make_member_check(bot), user.id, ttl_seconds=settings.membership_ttl_seconds
+            )
         res = answer_question(conn, llm, settings, query=text, project_ids=projects)
         await message.reply(res["answer"])
 

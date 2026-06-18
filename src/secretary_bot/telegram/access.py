@@ -16,6 +16,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
+from ..config import Settings
 from ..db import repositories as repo
 
 MemberCheck = Callable[[int, int], Awaitable[bool]]
@@ -23,6 +24,15 @@ MemberCheck = Callable[[int, int], Awaitable[bool]]
 
 def is_allowed(conn: sqlite3.Connection, tg_user_id: int) -> bool:
     return repo.is_whitelisted(conn, tg_user_id)
+
+
+def is_superadmin(settings: Settings, tg_user_id: int) -> bool:
+    """The single super-admin (configured ADMIN_USER_ID) sees all projects."""
+    return settings.admin_user_id is not None and tg_user_id == int(settings.admin_user_id)
+
+
+def all_project_ids(conn: sqlite3.Connection) -> set[int]:
+    return {int(p["id"]) for p in repo.list_projects(conn)}
 
 
 def project_for_tg_chat(conn: sqlite3.Connection, tg_chat_id: int) -> int | None:

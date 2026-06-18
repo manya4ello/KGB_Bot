@@ -1,8 +1,27 @@
 from datetime import datetime, timezone
 
+from secretary_bot.config import Settings
 from secretary_bot.db import repositories as repo
 from secretary_bot.db.database import init_db
 from secretary_bot.telegram import access
+
+
+def _settings(**over):
+    return Settings(_env_file=None, telegram_bot_token="x", openai_api_key="y", **over)
+
+
+def test_is_superadmin():
+    s = _settings(admin_user_id=99)
+    assert access.is_superadmin(s, 99) is True
+    assert access.is_superadmin(s, 7) is False
+    assert access.is_superadmin(_settings(), 99) is False  # no admin configured
+
+
+def test_all_project_ids():
+    conn = init_db(":memory:")
+    p1 = repo.create_project(conn, "a", "A")
+    p2 = repo.create_project(conn, "b", "B")
+    assert access.all_project_ids(conn) == {p1, p2}
 
 
 def _conn():
